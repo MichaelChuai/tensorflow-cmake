@@ -18,29 +18,26 @@ sudo apt-get install autoconf automake libtool curl make g++ unzip  # Protobuf D
 sudo apt-get install python-numpy swig python-dev python-wheel      # TensorFlow Dependencies
 git clone https://github.com/tensorflow/tensorflow                  # TensorFlow
 ```
-Enter the cloned repository, and append the following to the `tensorflow/BUILD` file:
+Enter the cloned repository, open `tensorflow/BUILD` file, then move to the bottom where you can find:
 ```bash
-# Added build rule
 cc_binary(
-    name = "libtensorflow_all.so",
+    name = "libtensorflow_cc.so",
     linkshared = 1,
-    linkopts = ["-Wl,--version-script=tensorflow/tf_version_script.lds"], # Remove this line if you are using MacOS
     deps = [
-        "//tensorflow/core:framework_internal",
-        "//tensorflow/core:tensorflow",
+        "//tensorflow/c:c_api",
         "//tensorflow/cc:cc_ops",
         "//tensorflow/cc:client_session",
         "//tensorflow/cc:scope",
-        "//tensorflow/c:c_api",
+        "//tensorflow/core:tensorflow",
     ],
 )
 ```
-This specifies a new build rule, producing `libtensorflow_all.so`, that includes all the required dependencies for integration
+This specifies the build rule we need, producing `libtensorflow_cc.so`, that includes all the required dependencies for integration
 with a C++ project. Build the shared library and copy it to `/usr/local/lib` as follows:
 ```bash
 ./configure      # Note that this requires user input
-bazel build tensorflow:libtensorflow_all.so
-sudo cp bazel-bin/tensorflow/libtensorflow_all.so /usr/local/lib
+bazel build //tensorflow:libtensorflow_cc.so
+sudo cp bazel-bin/tensorflow/libtensorflow_cc.so /usr/local/lib
 ```
 Copy the source to `/usr/local/include/google` and remove unneeded items:
 ```bash
@@ -61,24 +58,17 @@ Copy the third party directory:
 ```bash
 sudo cp -r third_party /usr/local/include/google/tensorflow/
 sudo rm -r /usr/local/include/google/tensorflow/third_party/py
-
-# Note: newer versions of TensorFlow do not have the following directory
-sudo rm -r /usr/local/include/google/tensorflow/third_party/avro
 ```
 
 
 ## Step 2: Install Eigen and Protobuf
 The TensorFlow runtime library requires both [Protobuf](https://developers.google.com/protocol-buffers/) and [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page).
-However, specific versions are required, and these may clash with currently installed versions of either software. Therefore, two options are
-provided:
+However, specific versions are required, and these may clash with currently installed versions of either software.
 
 - Install the packages to a directory on your computer, which will overwrite / clash with any previous versions installed in that directory (but allow multiple projects to reference them).
 The default directory is `/usr/local`, but any may be specified to avoid clashing. *This is the recommended option.*
-- Add the packages as external dependencies, allowing CMake to download and build them inside the project directory, not affecting any current versions.  This will never result in clashing,
-but the build process of your project may be lengthened.
 
-Choose the option that best fits your needs; you may mix these options as well, installing one to `/usr/local`, while keeping the other confined in the current project. In the following 
-instructions, be sure to replace `<EXECUTABLE_NAME>` with the name of your executable. Additionally, all generated CMake files should generally be placed in your CMake modules directory, 
+In the following instructions, be sure to replace `<EXECUTABLE_NAME>` with the name of your executable. Additionally, all generated CMake files should generally be placed in your CMake modules directory, 
 which is commonly `<PROJECT_ROOT>/cmake/Modules`.
 
 ### Eigen: Installing Locally
@@ -89,23 +79,12 @@ to the current directory.
 
 To generate the needed CMake files for your project, execute the script as follows: `eigen.sh generate installed <tensorflow-root> [<cmake-dir> <install-dir>]`. The `generate` command specifies that the 
 required CMake files are to be generated and placed in `<cmake-dir>` (this defaults to the current directory, but generally should your CMake modules directory). The optional `<install-dir>`
-argument specifies the directory Protobuf is installed to. This defaults to `/usr/local` and should directly correspond to the install directory specified when installing above. Two files
+argument specifies the directory Eigen is installed to. This defaults to `/usr/local` and should directly correspond to the install directory specified when installing above. Two files
 will be copied to the specified directory: `FindEigen.cmake` and `Eigen_VERSION.cmake`. Add the following to your `CMakeLists.txt`:
 ```CMake
 # Eigen
 find_package(Eigen REQUIRED)
 include_directories(${Eigen_INCLUDE_DIRS})
-```
-
-### Eigen: Adding as External Dependency
-Execute the `eigen.sh` script as follows: `eigen.sh generate external <tensorflow-root> [<cmake-dir>]`. The `external` command specifies that Eigen is not
-installed, but rather should be treated as an external CMake dependency. The `<tensorflow-root>` argument again should be the root directory of the TensorFlow repository,
-and the optional `<cmake-dir>` argument is the location to copy the required CMake modules to (defaults to the current directory). Two files will be copied
-to the specified directory: `Eigen.cmake` and `Eigen_VERSION.cmake`. Add the following to your `CMakeLists.txt`:
-```CMake
-# Eigen
-include(Eigen)
-add_dependencies(<EXECUTABLE_NAME> Eigen)
 ```
 
 
@@ -123,15 +102,6 @@ include_directories(${Protobuf_INCLUDE_DIRS})
 target_link_libraries(<EXECUTABLE_NAME> ${Protobuf_LIBRARIES})
 ```
 
-### Protobuf: Adding as External Dependency
-Execute the `protobuf.sh` script as follows: `protobuf.sh generate external <tensorflow-root> [<cmake-dir>]`. The arguments are also identical to those described in the Eigen
-section above. Two files will be copied to the specified directory: `Protobuf.cmake` and `Protobuf_VERSION.cmake`. Add the following to your `CMakeLists.txt`:
-```CMake
-# Protobuf
-include(Protobuf)
-add_dependencies(<EXECUTABLE_NAME> Protobuf)
-```
-
 ## Step 3: Configure the CMake Project
 
 Copy the `FindTensorflow.cmake` file in this repository to your CMake modules directory.
@@ -141,27 +111,6 @@ list(APPEND CMAKE_MODULE_PATH <CMAKE_MODULE_DIR>)
 # Replace <CMAKE_MODULE_DIR> with your path
 # The most common path is ${PROJECT_SOURCE_DIR}/cmake/Modules
 ```
-If *either* Protobuf or Eigen was added as an external dependency, add the following to your `CMakeLists.txt`:
-```CMake
-# set variables for external dependencies
-set(EXTERNAL_DIR "${PROJECT_SOURCE_DIR}/external"
-        CACHE PATH "Location where external dependencies will installed")
-set(DOWNLOAD_LOCATION "${EXTERNAL_DIR}/src"
-        CACHE PATH "Location where external projects will be downloaded")
-mark_as_advanced(EXTERNAL_DIR DOWNLOAD_LOCATION)
-include_directories(${EXTERNAL_DIR}/include)
-```
 
-The projects in the `examples/` directory demonstrate the correct usage of these instructions.
-
-## Troubleshooting
-
-### Compiler Path Build Error
-If Bazel fails to build the TensorFlow library, stating `error: Could not find compiler "gcc" in PATH`, you may have to execute the following:
-```bash
-bazel clean                                   # Clean project
-export CC="/usr/bin/gcc"                      # Set location of C compiler
-export CXX="/usr/bin/g++"                     # Set location of C++ compiler
-bazel build tensorflow:libtensorflow_all.so   # Rebuild project
-```
+The projects in the `example/` directory demonstrate the correct usage of these instructions.
 

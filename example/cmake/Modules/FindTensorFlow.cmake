@@ -12,7 +12,7 @@ find_path(TensorFlow_INCLUDE_DIR
         /usr/local/include/google/tensorflow
         /usr/include/google/tensorflow)
 
-find_library(TensorFlow_LIBRARY NAMES tensorflow_all
+find_library(TensorFlow_LIBRARY NAMES tensorflow_cc
         HINTS
         /usr/lib
         /usr/local/lib)
